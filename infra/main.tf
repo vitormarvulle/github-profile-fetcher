@@ -194,3 +194,249 @@ resource "aws_lambda_permission" "api_gw" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
 }
+
+# ========================================
+# EC2 "Hello World" Example
+# ========================================
+
+# Security Group for EC2 instance
+resource "aws_security_group" "ec2_hello_world" {
+  name        = "${var.project_name}-ec2-hello-world-sg"
+  description = "Security group for EC2 Hello World instance"
+
+  # Allow HTTP access
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Allow SSH access (optional, for debugging)
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Allow all outbound traffic
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-ec2-hello-world-sg"
+  }
+}
+
+# Get latest Amazon Linux 2 AMI
+data "aws_ami" "amazon_linux_2" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+# EC2 Instance with simple web server
+resource "aws_instance" "hello_world" {
+  ami           = data.aws_ami.amazon_linux_2.id
+  instance_type = "t3.micro"
+
+  vpc_security_group_ids = [aws_security_group.ec2_hello_world.id]
+
+  user_data = <<-EOF
+              #!/bin/bash
+              yum update -y
+              yum install -y httpd
+              systemctl start httpd
+              systemctl enable httpd
+              cat << 'EOF' > /var/www/html/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hello World from EC2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        gh: {
+                            bg: '#0d1117',
+                            border: '#30363d',
+                            text: '#c9d1d9',
+                            heading: '#ffffff',
+                            link: '#58a6ff',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Helvetica', 'Arial', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gh-bg text-gh-text font-sans antialiased min-h-screen flex flex-col items-center justify-center p-6">
+
+    <div class="w-full max-w-2xl border border-gh-border rounded-md p-8 md:p-12 shadow-sm">
+        <h1 class="text-3xl md:text-4xl font-semibold text-gh-heading border-b border-gh-border pb-3 mb-6">
+            Hello World from EC2! :)
+        </h1>
+        <p class="text-lg leading-relaxed">
+            Essa instancia foi criada a partir do terraform. Esse conteúdo está hardcoded no script do build. 
+        </p>
+    </div>
+
+</body>
+</html>
+
+              EOF
+
+  tags = {
+    Name = "${var.project_name}-ec2-hello-world"
+  }
+}
+
+# ========================================
+# ECS "Hello World" Example
+# ========================================
+
+# ECS Cluster
+resource "aws_ecs_cluster" "hello_world" {
+  name = "${var.project_name}-hello-world-cluster"
+
+  tags = {
+    Name = "${var.project_name}-hello-world-cluster"
+  }
+}
+
+# Security Group for ECS tasks
+resource "aws_security_group" "ecs_hello_world" {
+  name        = "${var.project_name}-ecs-hello-world-sg"
+  description = "Security group for ECS Hello World tasks"
+
+  # Allow HTTP access
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Allow all outbound traffic
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-ecs-hello-world-sg"
+  }
+}
+
+# Get default VPC
+data "aws_vpc" "default" {
+  default = true
+}
+
+# Get default subnets
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# IAM Role for ECS Task Execution
+resource "aws_iam_role" "ecs_task_execution_role" {
+  name = "${var.project_name}-ecs-task-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# Attach the AWS managed policy for ECS task execution
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# CloudWatch Log Group for ECS
+resource "aws_cloudwatch_log_group" "ecs_hello_world" {
+  name              = "/ecs/${var.project_name}-hello-world"
+  retention_in_days = 7
+}
+
+# ECS Task Definition
+resource "aws_ecs_task_definition" "hello_world" {
+  family                   = "${var.project_name}-hello-world"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "hello-world"
+      image     = "nginxdemos/hello"
+      essential = true
+      portMappings = [
+        {
+          containerPort = 80
+          protocol      = "tcp"
+        }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_hello_world.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+    }
+  ])
+}
+
+# ECS Service
+resource "aws_ecs_service" "hello_world" {
+  name            = "${var.project_name}-hello-world-service"
+  cluster         = aws_ecs_cluster.hello_world.id
+  task_definition = aws_ecs_task_definition.hello_world.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.ecs_hello_world.id]
+    assign_public_ip = true
+  }
+}

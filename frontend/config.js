@@ -1,1 +1,1 @@
-window.API_URL = "https://zoss77bboj.execute-api.us-east-1.amazonaws.com/profile";
+window.API_URL = "https://kdqhxbg4r7.execute-api.us-east-1.amazonaws.com/profile";
